@@ -210,7 +210,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 [lib]
 name = "mediaflow_proxy_light"
 path = "src/lib.rs"
-crate-type = ["staticlib", "rlib"]   # staticlib needed for iOS xcframework
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [[bin]]
 name = "mediaflow-proxy-light"

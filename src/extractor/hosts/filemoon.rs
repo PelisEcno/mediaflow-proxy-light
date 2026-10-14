@@ -5,7 +5,10 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{
+    engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD},
+    Engine as _,
+};
 
 use crate::extractor::base::{
     BaseExtractor, ExtraParams, Extractor, ExtractorError, ExtractorResult,
@@ -19,18 +22,27 @@ impl FileMoonExtractor {
     }
 }
 
-/// Decode a base64url-encoded string (with or without padding) into bytes.
+/// Decode a base64 string that may be either URL-safe or standard.
+/// FileMoon has been observed returning both formats.
 fn base64url_decode(input: &str) -> Result<Vec<u8>, ExtractorError> {
-    // Normalize: replace URL-safe chars with standard base64 chars, strip padding.
-    let normalized = input.replace('-', "+").replace('_', "/");
-    // Strip any existing padding then re-decode without pad (engine handles it).
-    let stripped = normalized.trim_end_matches('=');
-    URL_SAFE_NO_PAD
-        .decode(stripped)
-        .map_err(|e| ExtractorError::extract(format!("base64url decode failed: {e}")))
+    // Strip padding (both engines work without padding)
+    let stripped = input.trim_end_matches('=');
+    
+    // Auto-detect: standard base64 uses `+` and `/`, URL-safe uses `-` and `_`
+    let is_standard = stripped.contains('+') || stripped.contains('/');
+    
+    if is_standard {
+        STANDARD_NO_PAD
+            .decode(stripped)
+            .map_err(|e| ExtractorError::extract(format!("base64 decode failed: {e}")))
+    } else {
+        URL_SAFE_NO_PAD
+            .decode(stripped)
+            .map_err(|e| ExtractorError::extract(format!("base64url decode failed: {e}")))
+    }
 }
 
-/// Concatenate all key_parts (each base64url-decoded) into a single byte vector.
+/// Concatenate all key_parts (each base64-decoded) into a single byte vector.
 fn combine_key_parts(key_parts: &[serde_json::Value]) -> Result<Vec<u8>, ExtractorError> {
     let mut combined = Vec::new();
     for part in key_parts {
@@ -43,11 +55,6 @@ fn combine_key_parts(key_parts: &[serde_json::Value]) -> Result<Vec<u8>, Extract
 }
 
 /// Decrypt the `playback` object using AES-256-GCM.
-///
-/// The `aes-gcm` crate's `decrypt` method expects the ciphertext and the
-/// 16-byte authentication tag to be **concatenated** (ciphertext || tag),
-/// which is exactly the layout FileMoon uses (tag is the last 16 bytes of
-/// the payload).  So we pass `payload` directly.
 fn decrypt_playback(playback: &serde_json::Value) -> Result<serde_json::Value, ExtractorError> {
     let key_parts = playback["key_parts"]
         .as_array()
@@ -65,11 +72,9 @@ fn decrypt_playback(playback: &serde_json::Value) -> Result<serde_json::Value, E
         .ok_or_else(|| ExtractorError::extract("playback.payload missing"))?;
     let payload_bytes = base64url_decode(payload_str)?;
 
-    // Build cipher — key must be exactly 32 bytes for AES-256.
     let cipher = Aes256Gcm::new_from_slice(&key_bytes)
         .map_err(|e| ExtractorError::extract(format!("AES-256-GCM key init failed: {e}")))?;
 
-    // Nonce must be exactly 12 bytes for GCM.
     if iv_bytes.len() != 12 {
         return Err(ExtractorError::extract(format!(
             "unexpected IV length: {} (expected 12)",
@@ -78,7 +83,6 @@ fn decrypt_playback(playback: &serde_json::Value) -> Result<serde_json::Value, E
     }
     let nonce = Nonce::from_slice(&iv_bytes);
 
-    // `aes-gcm` decrypt expects ciphertext || tag (last 16 bytes = tag).
     let plaintext = cipher
         .decrypt(nonce, payload_bytes.as_ref())
         .map_err(|_| ExtractorError::extract("AES-256-GCM decryption failed"))?;
@@ -101,11 +105,6 @@ impl Extractor for FileMoonExtractor {
         url: &str,
         _extra: &ExtraParams,
     ) -> Result<ExtractorResult, ExtractorError> {
-        // ----------------------------------------------------------------
-        // 1. Parse the video code from the URL path.
-        //    Expected formats: https://filemoon.sx/e/{code}
-        //                      https://filemoon.sx/d/{code}
-        // ----------------------------------------------------------------
         let parsed = url::Url::parse(url)
             .map_err(|e| ExtractorError::extract(format!("invalid URL: {e}")))?;
 
@@ -118,9 +117,6 @@ impl Extractor for FileMoonExtractor {
                 ExtractorError::extract(format!("could not extract video code from URL: {url}"))
             })?;
 
-        // ----------------------------------------------------------------
-        // 2. Call the API endpoint.
-        // ----------------------------------------------------------------
         let scheme = parsed.scheme();
         let host = parsed
             .host_str()
@@ -132,9 +128,6 @@ impl Extractor for FileMoonExtractor {
 
         let (text, _final_url) = self.0.get_text(&api_url, Some(req_headers)).await?;
 
-        // ----------------------------------------------------------------
-        // 3. Parse the JSON response.
-        // ----------------------------------------------------------------
         let data: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| ExtractorError::extract(format!("FileMoon API JSON parse failed: {e}")))?;
 
@@ -154,14 +147,8 @@ impl Extractor for FileMoonExtractor {
             ));
         }
 
-        // ----------------------------------------------------------------
-        // 4. Decrypt the playback object.
-        // ----------------------------------------------------------------
         let decrypted = decrypt_playback(playback)?;
 
-        // ----------------------------------------------------------------
-        // 5. Find the HLS source.
-        // ----------------------------------------------------------------
         let sources = decrypted["sources"]
             .as_array()
             .ok_or_else(|| ExtractorError::extract("FileMoon: decrypted payload has no sources"))?;
@@ -178,9 +165,6 @@ impl Extractor for FileMoonExtractor {
             .ok_or_else(|| ExtractorError::extract("FileMoon: HLS source has no url field"))?
             .to_string();
 
-        // ----------------------------------------------------------------
-        // 6. Build result headers and return.
-        // ----------------------------------------------------------------
         let mut result_headers = self.0.base_headers.clone();
         result_headers.insert("referer".to_string(), url.to_string());
 

@@ -202,6 +202,10 @@ pub unsafe extern "C" fn mediaflow_server_start(srv: *mut MediaflowServer) -> Me
             use actix_web::{middleware, web, App, HttpServer};
             use std::sync::Arc;
 
+            // 🆕 Import del handler de extractores (solo si la feature está activa)
+            #[cfg(feature = "extractors")]
+            use crate::extractor::handler::extractor_video_handler;
+
             let auth_middleware = AuthMiddleware::new(cfg.auth.api_password.clone());
             let stream_manager = StreamManager::new(cfg.proxy.clone());
             let server_config = Arc::new(cfg.clone());
@@ -211,7 +215,7 @@ pub unsafe extern "C" fn mediaflow_server_start(srv: *mut MediaflowServer) -> Me
                 let config = Arc::clone(&server_config);
                 let cors = Cors::permissive();
 
-                App::new()
+                let mut app = App::new()
                     .wrap(cors)
                     .wrap(Logger::new("%a - \"%r\" %s"))
                     .wrap(middleware::Compress::default())
@@ -224,8 +228,21 @@ pub unsafe extern "C" fn mediaflow_server_start(srv: *mut MediaflowServer) -> Me
                             .route("/stream", web::head().to(handler::proxy_stream_head))
                             .route("/generate_url", web::post().to(handler::generate_url))
                             .route("/ip", web::get().to(handler::get_public_ip)),
-                    )
-                    .service(web::scope("/health").route("", web::get().to(|| async { "OK" })))
+                    );
+
+                // 🆕 Content Extractor routes (VOE, Doodstream, etc.)
+                #[cfg(feature = "extractors")]
+                {
+                    app = app.service(
+                        web::scope("/extractor")
+                            .route("/video", web::get().to(extractor_video_handler))
+                            .route("/video", web::head().to(extractor_video_handler))
+                            .route("/video.{ext}", web::get().to(extractor_video_handler))
+                            .route("/video.{ext}", web::head().to(extractor_video_handler)),
+                    );
+                }
+
+                app.service(web::scope("/health").route("", web::get().to(|| async { "OK" })))
                     .default_service(web::route().to(|| async {
                         actix_web::HttpResponse::NotFound().json(serde_json::json!({
                             "error": "Not Found"

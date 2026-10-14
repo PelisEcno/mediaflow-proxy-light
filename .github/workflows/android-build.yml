@@ -1,0 +1,92 @@
+name: Build Android Binary
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r26d
+
+      - name: Build for Android (arm64-v8a)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$TOOLCHAIN/bin/aarch64-linux-android21-clang"
+          export CC_aarch64_linux_android="$TOOLCHAIN/bin/aarch64-linux-android21-clang"
+          export AR_aarch64_linux_android="$TOOLCHAIN/bin/llvm-ar"
+          export RANLIB_aarch64_linux_android="$TOOLCHAIN/bin/llvm-ranlib"
+          
+          cargo build --release \
+            --target aarch64-linux-android \
+            --no-default-features \
+            --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
+
+      - name: Build for Android (armeabi-v7a)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$TOOLCHAIN/bin/armv7a-linux-androideabi21-clang"
+          export CC_armv7_linux_androideabi="$TOOLCHAIN/bin/armv7a-linux-androideabi21-clang"
+          export AR_armv7_linux_androideabi="$TOOLCHAIN/bin/llvm-ar"
+          
+          cargo build --release \
+            --target armv7-linux-androideabi \
+            --no-default-features \
+            --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
+
+      - name: Build for Android (x86_64 - emulador)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$TOOLCHAIN/bin/x86_64-linux-android21-clang"
+          export CC_x86_64_linux_android="$TOOLCHAIN/bin/x86_64-linux-android21-clang"
+          export AR_x86_64_linux_android="$TOOLCHAIN/bin/llvm-ar"
+          
+          cargo build --release \
+            --target x86_64-linux-android \
+            --no-default-features \
+            --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
+
+      - name: Rename binaries
+        run: |
+          mkdir -p android-binaries/arm64-v8a
+          mkdir -p android-binaries/armeabi-v7a
+          mkdir -p android-binaries/x86_64
+          
+          cp target/aarch64-linux-android/release/libmediaflow_proxy_light.so \
+             android-binaries/arm64-v8a/libmediaflow-proxy.so
+          
+          cp target/armv7-linux-androideabi/release/libmediaflow_proxy_light.so \
+             android-binaries/armeabi-v7a/libmediaflow-proxy.so
+          
+          cp target/x86_64-linux-android/release/libmediaflow_proxy_light.so \
+             android-binaries/x86_64/libmediaflow-proxy.so
+          
+          echo "=== Binarios generados ==="
+          ls -la android-binaries/*/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mediaflow-android-binaries
+          path: android-binaries/
+          retention-days: 30

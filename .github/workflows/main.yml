@@ -18,7 +18,6 @@ jobs:
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
       
-      # 🆕 STEP NUEVO: Configurar toolchain iOS
       - name: Configure iOS toolchain
         run: |
           SDK_IOS=$(xcrun --sdk iphoneos --show-sdk-path)
@@ -31,20 +30,69 @@ jobs:
           echo "CARGO_TARGET_AARCH64_APPLE_IOS_LINKER=$CC_IOS" >> $GITHUB_ENV
           echo "CARGO_TARGET_AARCH64_APPLE_IOS_AR=$AR_IOS" >> $GITHUB_ENV
           echo "CFLAGS_aarch64_apple_ios=-isysroot $SDK_IOS -target arm64-apple-ios" >> $GITHUB_ENV
-          echo "CC_aarch64_apple_ios=$CC_IOS" >> $GITHUB_ENV
-          echo "AR_aarch64_apple_ios=$AR_IOS" >> $GITHUB_ENV
 
           echo "CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER=$CC_SIM" >> $GITHUB_ENV
           echo "CARGO_TARGET_AARCH64_APPLE_IOS_SIM_AR=$AR_SIM" >> $GITHUB_ENV
           echo "CFLAGS_aarch64_apple_ios_sim=-isysroot $SDK_SIM -target arm64-apple-ios-simulator" >> $GITHUB_ENV
-          echo "CC_aarch64_apple_ios_sim=$CC_SIM" >> $GITHUB_ENV
-          echo "AR_aarch64_apple_ios_sim=$AR_SIM" >> $GITHUB_ENV
 
           echo "CARGO_TARGET_X86_64_APPLE_IOS_LINKER=$CC_SIM" >> $GITHUB_ENV
           echo "CARGO_TARGET_X86_64_APPLE_IOS_AR=$AR_SIM" >> $GITHUB_ENV
           echo "CFLAGS_x86_64_apple_ios=-isysroot $SDK_SIM -target x86_64-apple-ios-simulator" >> $GITHUB_ENV
-          echo "CC_x86_64_apple_ios=$CC_SIM" >> $GITHUB_ENV
-          echo "AR_x86_64_apple_ios=$AR_SIM" >> $GITHUB_ENV
+      
+      # 🆕 STEP NUEVO: Wrappers para clang/ar de iOS
+      - name: Install iOS compiler wrappers
+        run: |
+          # Device (arm64)
+          cat > /tmp/cc_aarch64_apple_ios <<'EOF'
+          #!/bin/bash
+          exec xcrun --sdk iphoneos clang -target arm64-apple-ios -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" "$@"
+          EOF
+          chmod +x /tmp/cc_aarch64_apple_ios
+
+          cat > /tmp/ar_aarch64_apple_ios <<'EOF'
+          #!/bin/bash
+          exec xcrun --sdk iphoneos ar "$@"
+          EOF
+          chmod +x /tmp/ar_aarch64_apple_ios
+
+          # Simulator arm64
+          cat > /tmp/cc_aarch64_apple_ios_sim <<'EOF'
+          #!/bin/bash
+          exec xcrun --sdk iphonesimulator clang -target arm64-apple-ios-simulator -isysroot "$(xcrun --sdk iphonesimulator --show-sdk-path)" "$@"
+          EOF
+          chmod +x /tmp/cc_aarch64_apple_ios_sim
+
+          cat > /tmp/ar_aarch64_apple_ios_sim <<'EOF'
+          #!/bin/bash
+          exec xcrun --sdk iphonesimulator ar "$@"
+          EOF
+          chmod +x /tmp/ar_aarch64_apple_ios_sim
+
+          # Simulator x86_64
+          cat > /tmp/cc_x86_64_apple_ios <<'EOF'
+          #!/bin/bash
+          exec xcrun --sdk iphonesimulator clang -target x86_64-apple-ios-simulator -isysroot "$(xcrun --sdk iphonesimulator --show-sdk-path)" "$@"
+          EOF
+          chmod +x /tmp/cc_x86_64_apple_ios
+
+          cat > /tmp/ar_x86_64_apple_ios <<'EOF'
+          #!/bin/bash
+          exec xcrun --sdk iphonesimulator ar "$@"
+          EOF
+          chmod +x /tmp/ar_x86_64_apple_ios
+
+          # Exportar para siguientes steps
+          echo "CC_aarch64_apple_ios=/tmp/cc_aarch64_apple_ios" >> $GITHUB_ENV
+          echo "AR_aarch64_apple_ios=/tmp/ar_aarch64_apple_ios" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_APPLE_IOS_LINKER=/tmp/cc_aarch64_apple_ios" >> $GITHUB_ENV
+
+          echo "CC_aarch64_apple_ios_sim=/tmp/cc_aarch64_apple_ios_sim" >> $GITHUB_ENV
+          echo "AR_aarch64_apple_ios_sim=/tmp/ar_aarch64_apple_ios_sim" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER=/tmp/cc_aarch64_apple_ios_sim" >> $GITHUB_ENV
+
+          echo "CC_x86_64_apple_ios=/tmp/cc_x86_64_apple_ios" >> $GITHUB_ENV
+          echo "AR_x86_64_apple_ios=/tmp/ar_x86_64_apple_ios" >> $GITHUB_ENV
+          echo "CARGO_TARGET_X86_64_APPLE_IOS_LINKER=/tmp/cc_x86_64_apple_ios" >> $GITHUB_ENV
       
       - name: Build for iOS device (arm64)
         run: |

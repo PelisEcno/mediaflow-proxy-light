@@ -121,13 +121,27 @@ jobs:
             --no-default-features \
             --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
       
+      # 🆕 Paso nuevo: fusionar simuladores en universal
+      - name: Create universal simulator library
+        run: |
+          mkdir -p target/universal-simulator/release
+          lipo -create \
+            target/aarch64-apple-ios-sim/release/libmediaflow_proxy_light.a \
+            target/x86_64-apple-ios/release/libmediaflow_proxy_light.a \
+            -output target/universal-simulator/release/libmediaflow_proxy_light.a
+          
+          echo "=== Universal simulator library info ==="
+          lipo -info target/universal-simulator/release/libmediaflow_proxy_light.a
+      
       - name: Create XCFramework
         run: |
           xcodebuild -create-xcframework \
             -library target/aarch64-apple-ios/release/libmediaflow_proxy_light.a \
-            -library target/aarch64-apple-ios-sim/release/libmediaflow_proxy_light.a \
-            -library target/x86_64-apple-ios/release/libmediaflow_proxy_light.a \
+            -library target/universal-simulator/release/libmediaflow_proxy_light.a \
             -output MediaFlowProxyLight.xcframework
+          
+          echo "=== XCFramework created ==="
+          ls -la MediaFlowProxyLight.xcframework/
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4

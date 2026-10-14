@@ -23,67 +23,77 @@ impl FileMoonExtractor {
 }
 
 /// Decode a base64 string trying EVERY possible variant.
-///
-/// FileMoon has been observed returning:
-/// - Standard base64 with `+` and `/`
-/// - URL-safe base64 with `-` and `_`
-/// - With or without padding (`=`)
-/// - Sometimes with internal whitespace/newlines
-///
-/// Strategy: normaliza → prueba cada engine hasta que uno funcione.
+/// 
+/// FileMoon's key_parts have DIFFERENT lengths (some 32 chars, some 22 chars).
+/// Strings with length % 4 == 2 or 3 need padding added.
 fn base64url_decode(input: &str) -> Result<Vec<u8>, ExtractorError> {
-    // ── Paso 1: Limpiar input ────────────────────────────────────────
-    // Quitar cualquier whitespace (espacios, \n, \r, \t)
-    let cleaned: String = input.chars().filter(|c| !c.is_whitespace()).collect();
+    // ── Paso 1: Filtrar solo caracteres base64 válidos ────────────────
+    let cleaned: String = input
+        .chars()
+        .filter(|c| {
+            c.is_ascii_alphanumeric()
+                || *c == '+'
+                || *c == '/'
+                || *c == '-'
+                || *c == '_'
+                || *c == '='
+        })
+        .collect();
 
     if cleaned.is_empty() {
-        return Err(ExtractorError::extract("base64 input is empty"));
+        return Err(ExtractorError::extract("base64 input has no valid characters"));
     }
 
-    // ── Paso 2: Generar variantes normalizadas ───────────────────────
-    // Variante A: URL-safe → standard (convierte - a + y _ a /)
+    // ── Paso 2: Normalizar a base64 estándar (para STANDARD engine) ────
     let as_standard = cleaned.replace('-', "+").replace('_', "/");
 
-    // Variante B: Ya está en URL-safe (deja - y _)
-    let as_urlsafe = cleaned.clone();
+    // ── Paso 3: Añadir padding si falta ───────────────────────────────
+    // base64 requiere longitud múltiplo de 4.
+    // Añadimos '=' hasta que sea múltiplo de 4.
+    let add_padding = |s: &str| -> String {
+        let trimmed = s.trim_end_matches('=');
+        let needed = (4 - trimmed.len() % 4) % 4;
+        format!("{}{}", trimmed, "=".repeat(needed))
+    };
 
-    // ── Paso 3: Intentar TODAS las combinaciones ────────────────────
-    // Orden de intentos: el más probable primero
+    let standard_padded = add_padding(&as_standard);
+    let urlsafe_padded = add_padding(&cleaned);
 
-    let attempts: Vec<(&str, String, Box<dyn Fn(&str) -> Result<Vec<u8>, String>>)> = vec![
-        // 1. STANDARD_NO_PAD sobre la versión standard (más común en FileMoon)
-        ("standard_no_pad", as_standard.trim_end_matches('=').to_string(),
-         Box::new(|s| STANDARD_NO_PAD.decode(s).map_err(|e| e.to_string()))),
-        // 2. STANDARD con padding sobre la versión standard
-        ("standard", as_standard.clone(),
-         Box::new(|s| STANDARD.decode(s).map_err(|e| e.to_string()))),
-        // 3. URL_SAFE_NO_PAD sobre la versión original
-        ("urlsafe_no_pad", as_urlsafe.trim_end_matches('=').to_string(),
-         Box::new(|s| URL_SAFE_NO_PAD.decode(s).map_err(|e| e.to_string()))),
-        // 4. URL_SAFE con padding sobre la versión original
-        ("urlsafe", as_urlsafe.clone(),
-         Box::new(|s| URL_SAFE.decode(s).map_err(|e| e.to_string()))),
-    ];
+    // ── Paso 4: Intentar TODAS las variantes ──────────────────────────
+    let mut first_error = String::from("no attempts made");
 
-    let mut last_error = String::from("no attempts made");
-
-    for (name, input_str, decoder) in attempts {
-        match decoder(&input_str) {
-            Ok(bytes) => return Ok(bytes),
-            Err(e) => {
-                last_error = format!("{}: {}", name, e);
-            }
-        }
+    // Intento 1: STANDARD con padding
+    match STANDARD.decode(&standard_padded) {
+        Ok(bytes) => return Ok(bytes),
+        Err(e) => first_error = format!("standard_padded: {e}"),
     }
 
-    // ── Paso 4: Todos fallaron ───────────────────────────────────────
+    // Intento 2: STANDARD sin padding (por si acaso)
+    match STANDARD_NO_PAD.decode(as_standard.trim_end_matches('=')) {
+        Ok(bytes) => return Ok(bytes),
+        Err(_) => {}
+    }
+
+    // Intento 3: URL_SAFE con padding
+    match URL_SAFE.decode(&urlsafe_padded) {
+        Ok(bytes) => return Ok(bytes),
+        Err(_) => {}
+    }
+
+    // Intento 4: URL_SAFE sin padding
+    match URL_SAFE_NO_PAD.decode(cleaned.trim_end_matches('=')) {
+        Ok(bytes) => return Ok(bytes),
+        Err(_) => {}
+    }
+
+    // ── Paso 5: Todo falló ────────────────────────────────────────────
     Err(ExtractorError::extract(format!(
-        "base64 decode failed (all 4 engines). Last error: {}. Input length: {}",
-        last_error,
-        cleaned.len()
+        "base64 decode failed (4 engines). First error: {}. Input length: {}, Input: {}",
+        first_error,
+        cleaned.len(),
+        &cleaned[..cleaned.len().min(80)]
     )))
 }
-
 /// Concatenate all key_parts (each base64-decoded) into a single byte vector.
 fn combine_key_parts(key_parts: &[serde_json::Value]) -> Result<Vec<u8>, ExtractorError> {
     let mut combined = Vec::new();

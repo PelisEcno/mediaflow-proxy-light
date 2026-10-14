@@ -33,7 +33,7 @@ jobs:
           export AR_aarch64_linux_android="$TOOLCHAIN/bin/llvm-ar"
           export RANLIB_aarch64_linux_android="$TOOLCHAIN/bin/llvm-ranlib"
           
-          cargo build --release \
+          cargo build --release --lib \
             --target aarch64-linux-android \
             --no-default-features \
             --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
@@ -46,8 +46,9 @@ jobs:
           export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$TOOLCHAIN/bin/armv7a-linux-androideabi21-clang"
           export CC_armv7_linux_androideabi="$TOOLCHAIN/bin/armv7a-linux-androideabi21-clang"
           export AR_armv7_linux_androideabi="$TOOLCHAIN/bin/llvm-ar"
+          export RANLIB_armv7_linux_androideabi="$TOOLCHAIN/bin/llvm-ranlib"
           
-          cargo build --release \
+          cargo build --release --lib \
             --target armv7-linux-androideabi \
             --no-default-features \
             --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
@@ -60,8 +61,9 @@ jobs:
           export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$TOOLCHAIN/bin/x86_64-linux-android21-clang"
           export CC_x86_64_linux_android="$TOOLCHAIN/bin/x86_64-linux-android21-clang"
           export AR_x86_64_linux_android="$TOOLCHAIN/bin/llvm-ar"
+          export RANLIB_x86_64_linux_android="$TOOLCHAIN/bin/llvm-ranlib"
           
-          cargo build --release \
+          cargo build --release --lib \
             --target x86_64-linux-android \
             --no-default-features \
             --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
@@ -72,14 +74,32 @@ jobs:
           mkdir -p android-binaries/armeabi-v7a
           mkdir -p android-binaries/x86_64
           
-          cp target/aarch64-linux-android/release/libmediaflow_proxy_light.so \
-             android-binaries/arm64-v8a/libmediaflow-proxy.so
+          # 🔍 DEBUG: ver qué archivos generó cargo
+          echo "=== Contenido de target/aarch64-linux-android/release/ ==="
+          ls -la target/aarch64-linux-android/release/ | grep -E "\.so|\.a" || echo "No .so/.a files"
           
-          cp target/armv7-linux-androideabi/release/libmediaflow_proxy_light.so \
-             android-binaries/armeabi-v7a/libmediaflow-proxy.so
+          # 🆕 Buscar el .so con find (más robusto que cp hardcodeado)
+          SO_ARM64=$(find target/aarch64-linux-android/release -maxdepth 1 -name "libmediaflow_proxy_light.so" -type f | head -1)
+          if [ -z "$SO_ARM64" ]; then
+            echo "❌ No se encontró libmediaflow_proxy_light.so para arm64"
+            echo "Archivos disponibles:"
+            find target/aarch64-linux-android/release -maxdepth 1 -type f
+            exit 1
+          fi
+          echo "✅ arm64: $SO_ARM64"
+          cp "$SO_ARM64" android-binaries/arm64-v8a/libmediaflow-proxy.so
           
-          cp target/x86_64-linux-android/release/libmediaflow_proxy_light.so \
-             android-binaries/x86_64/libmediaflow-proxy.so
+          SO_V7=$(find target/armv7-linux-androideabi/release -maxdepth 1 -name "libmediaflow_proxy_light.so" -type f | head -1)
+          if [ -n "$SO_V7" ]; then
+            echo "✅ armeabi-v7a: $SO_V7"
+            cp "$SO_V7" android-binaries/armeabi-v7a/libmediaflow-proxy.so
+          fi
+          
+          SO_X64=$(find target/x86_64-linux-android/release -maxdepth 1 -name "libmediaflow_proxy_light.so" -type f | head -1)
+          if [ -n "$SO_X64" ]; then
+            echo "✅ x86_64: $SO_X64"
+            cp "$SO_X64" android-binaries/x86_64/libmediaflow-proxy.so
+          fi
           
           echo "=== Binarios generados ==="
           ls -la android-binaries/*/

@@ -9,6 +9,10 @@ jobs:
   build-ios:
     runs-on: macos-latest
     
+    env:
+      IPHONEOS_DEPLOYMENT_TARGET: "13.0"
+      CARGO_TERM_COLOR: always
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,7 +24,7 @@ jobs:
       
       - name: Install iOS compiler wrappers
         run: |
-          # ═══ Device (arm64) ═══
+          # Device (arm64)
           cat > /tmp/cc_aarch64_apple_ios <<'EOF'
           #!/bin/bash
           exec xcrun --sdk iphoneos clang -target arm64-apple-ios -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" "$@"
@@ -33,7 +37,7 @@ jobs:
           EOF
           chmod +x /tmp/ar_aarch64_apple_ios
 
-          # ═══ Simulator arm64 ═══
+          # Simulator arm64
           cat > /tmp/cc_aarch64_apple_ios_sim <<'EOF'
           #!/bin/bash
           exec xcrun --sdk iphonesimulator clang -target arm64-apple-ios-simulator -isysroot "$(xcrun --sdk iphonesimulator --show-sdk-path)" "$@"
@@ -46,7 +50,7 @@ jobs:
           EOF
           chmod +x /tmp/ar_aarch64_apple_ios_sim
 
-          # ═══ Simulator x86_64 ═══
+          # Simulator x86_64
           cat > /tmp/cc_x86_64_apple_ios <<'EOF'
           #!/bin/bash
           exec xcrun --sdk iphonesimulator clang -target x86_64-apple-ios-simulator -isysroot "$(xcrun --sdk iphonesimulator --show-sdk-path)" "$@"
@@ -59,32 +63,25 @@ jobs:
           EOF
           chmod +x /tmp/ar_x86_64_apple_ios
 
-          # ═══ Exportar TODO (CC, AR, uppercase y lowercase) ═══
-          # Device
+          # Exportar env vars
           echo "CC_aarch64_apple_ios=/tmp/cc_aarch64_apple_ios" >> $GITHUB_ENV
           echo "AR_aarch64_apple_ios=/tmp/ar_aarch64_apple_ios" >> $GITHUB_ENV
-          echo "CC_AARCH64_APPLE_IOS=/tmp/cc_aarch64_apple_ios" >> $GITHUB_ENV
-          echo "AR_AARCH64_APPLE_IOS=/tmp/ar_aarch64_apple_ios" >> $GITHUB_ENV
           echo "CARGO_TARGET_AARCH64_APPLE_IOS_LINKER=/tmp/cc_aarch64_apple_ios" >> $GITHUB_ENV
           echo "CARGO_TARGET_AARCH64_APPLE_IOS_AR=/tmp/ar_aarch64_apple_ios" >> $GITHUB_ENV
 
-          # Sim ARM64
           echo "CC_aarch64_apple_ios_sim=/tmp/cc_aarch64_apple_ios_sim" >> $GITHUB_ENV
           echo "AR_aarch64_apple_ios_sim=/tmp/ar_aarch64_apple_ios_sim" >> $GITHUB_ENV
-          echo "CC_AARCH64_APPLE_IOS_SIM=/tmp/cc_aarch64_apple_ios_sim" >> $GITHUB_ENV
-          echo "AR_AARCH64_APPLE_IOS_SIM=/tmp/ar_aarch64_apple_ios_sim" >> $GITHUB_ENV
           echo "CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER=/tmp/cc_aarch64_apple_ios_sim" >> $GITHUB_ENV
           echo "CARGO_TARGET_AARCH64_APPLE_IOS_SIM_AR=/tmp/ar_aarch64_apple_ios_sim" >> $GITHUB_ENV
 
-          # Sim x86_64
           echo "CC_x86_64_apple_ios=/tmp/cc_x86_64_apple_ios" >> $GITHUB_ENV
           echo "AR_x86_64_apple_ios=/tmp/ar_x86_64_apple_ios" >> $GITHUB_ENV
-          echo "CC_X86_64_APPLE_IOS=/tmp/cc_x86_64_apple_ios" >> $GITHUB_ENV
-          echo "AR_X86_64_APPLE_IOS=/tmp/ar_x86_64_apple_ios" >> $GITHUB_ENV
           echo "CARGO_TARGET_X86_64_APPLE_IOS_LINKER=/tmp/cc_x86_64_apple_ios" >> $GITHUB_ENV
           echo "CARGO_TARGET_X86_64_APPLE_IOS_AR=/tmp/ar_x86_64_apple_ios" >> $GITHUB_ENV
       
       - name: Build for iOS device (arm64)
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "13.0"
         run: |
           export CC_aarch64_apple_ios=/tmp/cc_aarch64_apple_ios
           export AR_aarch64_apple_ios=/tmp/ar_aarch64_apple_ios
@@ -94,9 +91,11 @@ jobs:
           cargo build --release \
             --target aarch64-apple-ios \
             --no-default-features \
-            --features "hls,mpd,drm,xtream,extractors,base64-url,tls-rustls,ffi"
+            --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
       
       - name: Build for iOS simulator (arm64)
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "13.0"
         run: |
           export CC_aarch64_apple_ios_sim=/tmp/cc_aarch64_apple_ios_sim
           export AR_aarch64_apple_ios_sim=/tmp/ar_aarch64_apple_ios_sim
@@ -106,9 +105,11 @@ jobs:
           cargo build --release \
             --target aarch64-apple-ios-sim \
             --no-default-features \
-            --features "hls,mpd,drm,xtream,extractors,base64-url,tls-rustls,ffi"
+            --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
       
       - name: Build for iOS simulator (x86_64)
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "13.0"
         run: |
           export CC_x86_64_apple_ios=/tmp/cc_x86_64_apple_ios
           export AR_x86_64_apple_ios=/tmp/ar_x86_64_apple_ios
@@ -118,7 +119,7 @@ jobs:
           cargo build --release \
             --target x86_64-apple-ios \
             --no-default-features \
-            --features "hls,mpd,drm,xtream,extractors,base64-url,tls-rustls,ffi"
+            --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
       
       - name: Create XCFramework
         run: |

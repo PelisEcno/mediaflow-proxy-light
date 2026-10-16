@@ -32,11 +32,11 @@ jobs:
           export CC_aarch64_linux_android="$TOOLCHAIN/bin/aarch64-linux-android21-clang"
           export AR_aarch64_linux_android="$TOOLCHAIN/bin/llvm-ar"
           export RANLIB_aarch64_linux_android="$TOOLCHAIN/bin/llvm-ranlib"
-          
-          cargo build --release --lib \
+
+          cargo build --release --bin mediaflow-proxy-light \
             --target aarch64-linux-android \
             --no-default-features \
-            --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
+            --features "hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
 
       - name: Build for Android (armeabi-v7a)
         env:
@@ -47,11 +47,11 @@ jobs:
           export CC_armv7_linux_androideabi="$TOOLCHAIN/bin/armv7a-linux-androideabi21-clang"
           export AR_armv7_linux_androideabi="$TOOLCHAIN/bin/llvm-ar"
           export RANLIB_armv7_linux_androideabi="$TOOLCHAIN/bin/llvm-ranlib"
-          
-          cargo build --release --lib \
+
+          cargo build --release --bin mediaflow-proxy-light \
             --target armv7-linux-androideabi \
             --no-default-features \
-            --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
+            --features "hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
 
       - name: Build for Android (x86_64)
         env:
@@ -62,36 +62,39 @@ jobs:
           export CC_x86_64_linux_android="$TOOLCHAIN/bin/x86_64-linux-android21-clang"
           export AR_x86_64_linux_android="$TOOLCHAIN/bin/llvm-ar"
           export RANLIB_x86_64_linux_android="$TOOLCHAIN/bin/llvm-ranlib"
-          
-          cargo build --release --lib \
+
+          cargo build --release --bin mediaflow-proxy-light \
             --target x86_64-linux-android \
             --no-default-features \
-            --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
+            --features "hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
 
       - name: Rename binaries
         run: |
           mkdir -p android-binaries/arm64-v8a
           mkdir -p android-binaries/armeabi-v7a
           mkdir -p android-binaries/x86_64
-          
-          SO_ARM64=$(find target/aarch64-linux-android/release -maxdepth 1 -name "libmediaflow_proxy_light.so" -type f | head -1)
-          if [ -z "$SO_ARM64" ]; then
-            echo "❌ No se encontró libmediaflow_proxy_light.so para arm64"
-            find target/aarch64-linux-android/release -maxdepth 1 -type f
+
+          BIN_ARM64="target/aarch64-linux-android/release/mediaflow-proxy-light"
+          if [ ! -f "$BIN_ARM64" ]; then
+            echo "❌ No se encontró el binario para arm64"
+            ls -la target/aarch64-linux-android/release/
             exit 1
           fi
-          cp "$SO_ARM64" android-binaries/arm64-v8a/libmediaflow-proxy.so
-          
-          SO_V7=$(find target/armv7-linux-androideabi/release -maxdepth 1 -name "libmediaflow_proxy_light.so" -type f | head -1)
-          if [ -n "$SO_V7" ]; then
-            cp "$SO_V7" android-binaries/armeabi-v7a/libmediaflow-proxy.so
+          cp "$BIN_ARM64" android-binaries/arm64-v8a/libmediaflow-proxy-arm64.so
+          chmod +x android-binaries/arm64-v8a/libmediaflow-proxy-arm64.so
+
+          BIN_V7="target/armv7-linux-androideabi/release/mediaflow-proxy-light"
+          if [ -f "$BIN_V7" ]; then
+            cp "$BIN_V7" android-binaries/armeabi-v7a/libmediaflow-proxy-arm32.so
+            chmod +x android-binaries/armeabi-v7a/libmediaflow-proxy-arm32.so
           fi
-          
-          SO_X64=$(find target/x86_64-linux-android/release -maxdepth 1 -name "libmediaflow_proxy_light.so" -type f | head -1)
-          if [ -n "$SO_X64" ]; then
-            cp "$SO_X64" android-binaries/x86_64/libmediaflow-proxy.so
+
+          BIN_X64="target/x86_64-linux-android/release/mediaflow-proxy-light"
+          if [ -f "$BIN_X64" ]; then
+            cp "$BIN_X64" android-binaries/x86_64/libmediaflow-proxy-x86_64.so
+            chmod +x android-binaries/x86_64/libmediaflow-proxy-x86_64.so
           fi
-          
+
           ls -la android-binaries/*/
 
       - name: Upload artifacts

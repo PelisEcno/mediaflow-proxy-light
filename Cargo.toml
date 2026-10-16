@@ -94,10 +94,10 @@ empty_line_after_doc_comments = "allow"
 # Release profile — maximise performance
 # ---------------------------------------------------------------------------
 [profile.release]
-opt-level = 3
-lto = "fat"
-codegen-units = 1
-panic = "abort"
+opt-level = 2
+lto = "thin"           # antes: fat
+codegen-units = 4      # antes: 1
+panic = "unwind"       # antes: abort
 strip = true
 debug = false
 

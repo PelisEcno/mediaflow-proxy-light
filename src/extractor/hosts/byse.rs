@@ -220,21 +220,17 @@ impl Extractor for ByseExtractor {
                 // 6. PLAYBACK
         let playback_url = format!("{}/api/videos/{}/embed/playback", base_url, video_id);
         let playback_body = json!({
-            "fingerprint": { 
-                "token": token, 
-                "viewer_id": "AtuauIaIq2YSMIBc-Ull4A", 
-                "device_id": "fqWjmX5ayBvC_eCFbYqiqw", 
-                "confidence": 0.93 
-            }
+            "fingerprint": { "token": token, "viewer_id": "AtuauIaIq2YSMIBc-Ull4A", "device_id": "fqWjmX5ayBvC_eCFbYqiqw", "confidence": 0.93 }
         });
-
         let mut playback_headers = req_headers.clone();
-        // 👇 AÑADIR EL TOKEN DEL CAPTCHA
-        playback_headers.insert("x-captcha-token".to_string(), captcha_token.to_string());
-        // 👇 AÑADIR EL EMBED PARENT (por si acaso)
-        playback_headers.insert("x-embed-parent".to_string(), referer.to_string());
-
+        playback_headers.insert("x-captcha-token".into(), captcha_token.into());
         let (playback_text, _) = self.0.post_json_text(&playback_url, playback_body, Some(playback_headers)).await?;
+        let playback_json: Value = serde_json::from_str(&playback_text)
+            .map_err(|e| ExtractorError::extract(format!("playback parse: {e}")))?;
+        
+        // 👇 DEFINIMOS LA VARIABLE PLAYBACK
+        let playback = playback_json.get("playback").ok_or_else(|| ExtractorError::extract("no playback"))?;
+
         // 7. DESCIFRAR
         let key_parts = playback["key_parts"].as_array().ok_or_else(|| ExtractorError::extract("no key_parts"))?;
         let version: usize = playback["version"].as_str().unwrap_or("1").parse().map_err(|_| ExtractorError::extract("invalid version"))?;

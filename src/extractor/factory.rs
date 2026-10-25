@@ -81,6 +81,7 @@ pub fn get_extractor(
         "sportsonline" => SportsonlineExtractor,
         "streamhg"     => StreamHGExtractor,
         "vidfast"      => VidFastExtractor,
+        "byse"         => ByseExtractor,
     );
 
     let factory = registry

@@ -83,7 +83,7 @@ pub fn get_extractor(
         "streamhg"     => StreamHGExtractor,
         "vidfast"      => VidFastExtractor,
         "byse"         => ByseExtractor,
-        "mp4upload" => MP4UploadExtractor,,
+        "mp4upload" => MP4UploadExtractor,
     );
 
     let factory = registry

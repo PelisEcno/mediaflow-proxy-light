@@ -1,5 +1,8 @@
+use async_trait::async_trait;
+use std::collections::HashMap;
+
 use aes_gcm::{
-    aead::{Aead, KeyInit, OsRng},
+    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -7,12 +10,23 @@ use p256::{
     ecdsa::{signature::Signer, Signature, SigningKey},
     elliptic_curve::sec1::ToEncodedPoint,
 };
-use rand_core::RngCore;
+use rand_core::OsRng;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+
+use crate::extractor::base::{
+    BaseExtractor, ExtraParams, Extractor, ExtractorError, ExtractorResult,
+};
+
+pub struct ByseExtractor(pub BaseExtractor);
+
+impl ByseExtractor {
+    pub fn new(request_headers: HashMap<String, String>, proxy_url: Option<String>) -> Self {
+        Self(BaseExtractor::new(request_headers, proxy_url))
+    }
+}
 
 // ════════════════════════════════════════════════
-//  ALGORITMO POW DE BYSE (Traducido a Rust)
+//  ALGORITMO POW DE BYSE (Traducido del JS)
 // ════════════════════════════════════════════════
 const BE: usize = 512;
 const LT: usize = BE - 1;
@@ -105,201 +119,242 @@ fn solve_pow(nonce: &str, difficulty: u32) -> String {
 }
 
 // ════════════════════════════════════════════════
-//  EXTRACTOR PRINCIPAL
+//  HELPERS
 // ════════════════════════════════════════════════
-pub async fn extract_byse(
-    client: &reqwest::Client,
-    embed_url: &str,
-) -> Result<Value, String> {
-    // 1. Extraer el ID del video (lavu1tiombaz)
-    let video_id = embed_url
-        .split("/e/")
-        .last()
-        .ok_or("Invalid embed URL")?
-        .split(&['?', '#'][..])
-        .next()
-        .ok_or("Invalid embed URL")?;
 
-    let base_url = "https://n1mwq.org";
-    let referer = embed_url;
-    let origin = "https://n1mwq.org";
+fn decode_jwk_part(part: &str) -> Result<Vec<u8>, ExtractorError> {
+    URL_SAFE_NO_PAD
+        .decode(part.trim_end_matches('='))
+        .map_err(|e| ExtractorError::extract(format!("jwk decode failed: {e}")))
+}
 
-    // 2. Challenge
-    let challenge_url = format!("{}/api/videos/access/challenge", base_url);
-    let challenge_res = client
-        .post(&challenge_url)
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36")
-        .header("Referer", referer)
-        .header("Origin", origin)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let challenge_json: Value = challenge_res.json().await.map_err(|e| e.to_string())?;
-    let challenge_id = challenge_json["challenge_id"].as_str().ok_or("No challenge_id")?;
-    let nonce = challenge_json["nonce"].as_str().ok_or("No nonce")?;
-
-    // 3. Generar llaves ECDSA P-256 y firmar
-    let mut csprng = rand_core::OsRng;
-    let signing_key = SigningKey::random(&mut csprng);
-    let verifying_key = signing_key.verifying_key();
-    let public_key = verifying_key.to_encoded_point(false);
-    
-    // Construir JWK
-    let x = URL_SAFE_NO_PAD.encode(&public_key.x().unwrap());
-    let y = URL_SAFE_NO_PAD.encode(&public_key.y().unwrap());
-    
-    let signature: Signature = signing_key.sign(nonce.as_bytes());
-    let sig_bytes = signature.to_bytes();
-    let sig_b64 = URL_SAFE_NO_PAD.encode(sig_bytes);
-
-    // 4. Attest
-    let attest_url = format!("{}/api/videos/access/attest", base_url);
-    let attest_body = json!({
-        "viewer_id": "AtuauIaIq2YSMIBc-Ull4A",
-        "device_id": "fqWjmX5ayBvC_eCFbYqiqw",
-        "challenge_id": challenge_id,
-        "nonce": nonce,
-        "signature": sig_b64,
-        "public_key": {
-            "crv": "P-256",
-            "ext": true,
-            "key_ops": ["verify"],
-            "kty": "EC",
-            "x": x,
-            "y": y
-        }
-    });
-
-    let attest_res = client
-        .post(&attest_url)
-        .header("Content-Type", "application/json")
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36")
-        .header("Referer", referer)
-        .header("Origin", origin)
-        .json(&attest_body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let attest_json: Value = attest_res.json().await.map_err(|e| e.to_string())?;
-    let token = attest_json["token"].as_str().ok_or("No token")?;
-
-    // 5. Captcha
-    let captcha_url = format!("{}/api/videos/{}/embed/captcha", base_url, video_id);
-    let captcha_body = json!({
-        "fingerprint": {
-            "token": token,
-            "viewer_id": "AtuauIaIq2YSMIBc-Ull4A",
-            "device_id": "fqWjmX5ayBvC_eCFbYqiqw",
-            "confidence": 0.93
-        }
-    });
-
-    let captcha_res = client
-        .post(&captcha_url)
-        .header("Content-Type", "application/json")
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36")
-        .header("Referer", referer)
-        .header("Origin", origin)
-        .json(&captcha_body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let captcha_json: Value = captcha_res.json().await.map_err(|e| e.to_string())?;
-    let pow_token = captcha_json["pow_token"].as_str().ok_or("No pow_token")?;
-    let pow_nonce = captcha_json["pow_nonce"].as_str().ok_or("No pow_nonce")?;
-    let pow_difficulty = captcha_json["pow_difficulty"].as_u64().unwrap_or(16) as u32;
-
-    // 6. Resolver PoW
-    let solution = solve_pow(pow_nonce, pow_difficulty);
-
-    // 7. Verify
-    let verify_url = format!("{}/api/videos/{}/embed/captcha/verify", base_url, video_id);
-    let verify_body = json!({
-        "pow_token": pow_token,
-        "solution": solution,
-        "fingerprint": {
-            "token": token,
-            "viewer_id": "AtuauIaIq2YSMIBc-Ull4A",
-            "device_id": "fqWjmX5ayBvC_eCFbYqiqw",
-            "confidence": 0.93
-        }
-    });
-
-    let verify_res = client
-        .post(&verify_url)
-        .header("Content-Type", "application/json")
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36")
-        .header("Referer", referer)
-        .header("Origin", origin)
-        .json(&verify_body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let verify_json: Value = verify_res.json().await.map_err(|e| e.to_string())?;
-    let captcha_token = verify_json["token"].as_str().ok_or("No captcha_token")?;
-
-    // 8. Playback
-    let playback_url = format!("{}/api/videos/{}/embed/playback", base_url, video_id);
-    let playback_body = json!({
-        "fingerprint": {
-            "token": token,
-            "viewer_id": "AtuauIaIq2YSMIBc-Ull4A",
-            "device_id": "fqWjmX5ayBvC_eCFbYqiqw",
-            "confidence": 0.93
-        }
-    });
-
-    let playback_res = client
-        .post(&playback_url)
-        .header("Content-Type", "application/json")
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36")
-        .header("Referer", referer)
-        .header("Origin", origin)
-        .header("x-captcha-token", captcha_token)
-        .json(&playback_body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let playback_json: Value = playback_res.json().await.map_err(|e| e.to_string())?;
-    let playback = playback_json["playback"].as_object().ok_or("No playback")?;
-
-    // 9. Descifrar
-    let key_parts = playback["key_parts"].as_array().ok_or("No key_parts")?;
-    let version = playback["version"].as_str().unwrap_or("1").parse::<usize>().map_err(|_| "Invalid version")?;
-    let iv_b64 = playback["iv"].as_str().ok_or("No iv")?;
-    let payload_b64 = playback["payload"].as_str().ok_or("No payload")?;
+fn build_aes_key(key_parts: &[Value], version: usize) -> Result<Vec<u8>, ExtractorError> {
+    if version < 1 || version > 30 {
+        return Err(ExtractorError::extract("invalid version"));
+    }
 
     let i1 = version - 1;
     let i2 = 30 - version;
+
     if i1 >= key_parts.len() || i2 >= key_parts.len() {
-        return Err("Key index out of bounds".to_string());
+        return Err(ExtractorError::extract("key index out of bounds"));
     }
 
-    let part1 = key_parts[i1].as_str().ok_or("Invalid key part")?;
-    let part2 = key_parts[i2].as_str().ok_or("Invalid key part")?;
+    let part1 = key_parts[i1].as_str().ok_or_else(|| ExtractorError::extract("invalid key part 1"))?;
+    let part2 = key_parts[i2].as_str().ok_or_else(|| ExtractorError::extract("invalid key part 2"))?;
 
-    let mut key_bytes = Vec::new();
-    key_bytes.extend(URL_SAFE_NO_PAD.decode(part1).map_err(|e| e.to_string())?);
-    key_bytes.extend(URL_SAFE_NO_PAD.decode(part2).map_err(|e| e.to_string())?);
-    
-    if key_bytes.len() < 32 {
-        return Err("Key too short".to_string());
+    let mut key = Vec::new();
+    key.extend(decode_jwk_part(part1)?);
+    key.extend(decode_jwk_part(part2)?);
+
+    if key.len() < 32 {
+        return Err(ExtractorError::extract("key too short"));
     }
-    let key = &key_bytes[..32];
 
-    let iv = URL_SAFE_NO_PAD.decode(iv_b64).map_err(|e| e.to_string())?;
-    let ciphertext = URL_SAFE_NO_PAD.decode(payload_b64).map_err(|e| e.to_string())?;
+    // Cortar a 32 bytes para AES-256
+    Ok(key[..32].to_vec())
+}
 
-    let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
-    let nonce = Nonce::from_slice(&iv);
-    
-    let plaintext = cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|e| e.to_string())?;
-    let decrypted_json: Value = serde_json::from_slice(&plaintext).map_err(|e| e.to_string())?;
+// ════════════════════════════════════════════════
+//  EXTRACTOR
+// ════════════════════════════════════════════════
 
-    Ok(decrypted_json)
+#[async_trait]
+impl Extractor for ByseExtractor {
+    fn host_name(&self) -> &'static str {
+        "Byse"
+    }
+
+    async fn extract(
+        &self,
+        url: &str,
+        _extra: &ExtraParams,
+    ) -> Result<ExtractorResult, ExtractorError> {
+        let parsed = url::Url::parse(url)
+            .map_err(|e| ExtractorError::extract(format!("invalid URL: {e}")))?;
+
+        // Extraer el video ID (ej: lavu1tiombaz)
+        let video_id = parsed
+            .path()
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| ExtractorError::extract(format!("no video ID in URL: {url}")))?;
+
+        let base_url = "https://n1mwq.org";
+        let referer = url;
+        let origin = "https://n1mwq.org";
+
+        let mut req_headers = HashMap::new();
+        req_headers.insert("referer".to_string(), referer.to_string());
+        req_headers.insert("origin".to_string(), origin.to_string());
+        req_headers.insert(
+            "user-agent".to_string(),
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36".to_string(),
+        );
+
+        // 1. CHALLENGE
+        let challenge_url = format!("{}/api/videos/access/challenge", base_url);
+        let (challenge_text, _) = self.0.get_text(&challenge_url, Some(req_headers.clone())).await?;
+        let challenge_json: Value = serde_json::from_str(&challenge_text)
+            .map_err(|e| ExtractorError::extract(format!("challenge parse failed: {e}")))?;
+
+        let challenge_id = challenge_json["challenge_id"].as_str()
+            .ok_or_else(|| ExtractorError::extract("no challenge_id"))?;
+        let nonce = challenge_json["nonce"].as_str()
+            .ok_or_else(|| ExtractorError::extract("no nonce"))?;
+
+        // 2. ATTEST (ECDSA P-256)
+        let mut csprng = OsRng;
+        let signing_key = SigningKey::random(&mut csprng);
+        let verifying_key = signing_key.verifying_key();
+        let public_key = verifying_key.to_encoded_point(false);
+
+        let x = URL_SAFE_NO_PAD.encode(public_key.x().ok_or_else(|| ExtractorError::extract("no x"))?);
+        let y = URL_SAFE_NO_PAD.encode(public_key.y().ok_or_else(|| ExtractorError::extract("no y"))?);
+
+        let signature: Signature = signing_key.sign(nonce.as_bytes());
+        let sig_b64 = URL_SAFE_NO_PAD.encode(signature.to_bytes());
+
+        let attest_url = format!("{}/api/videos/access/attest", base_url);
+        let attest_body = json!({
+            "viewer_id": "AtuauIaIq2YSMIBc-Ull4A",
+            "device_id": "fqWjmX5ayBvC_eCFbYqiqw",
+            "challenge_id": challenge_id,
+            "nonce": nonce,
+            "signature": sig_b64,
+            "public_key": {
+                "crv": "P-256",
+                "ext": true,
+                "key_ops": ["verify"],
+                "kty": "EC",
+                "x": x,
+                "y": y
+            }
+        });
+
+        let attest_text = self.0.post_json(&attest_url, &attest_body, Some(req_headers.clone())).await?;
+        let attest_json: Value = serde_json::from_str(&attest_text)
+            .map_err(|e| ExtractorError::extract(format!("attest parse failed: {e}")))?;
+
+        let token = attest_json["token"].as_str()
+            .ok_or_else(|| ExtractorError::extract("no token from attest"))?;
+
+        // 3. CAPTCHA
+        let captcha_url = format!("{}/api/videos/{}/embed/captcha", base_url, video_id);
+        let captcha_body = json!({
+            "fingerprint": {
+                "token": token,
+                "viewer_id": "AtuauIaIq2YSMIBc-Ull4A",
+                "device_id": "fqWjmX5ayBvC_eCFbYqiqw",
+                "confidence": 0.93
+            }
+        });
+
+        let captcha_text = self.0.post_json(&captcha_url, &captcha_body, Some(req_headers.clone())).await?;
+        let captcha_json: Value = serde_json::from_str(&captcha_text)
+            .map_err(|e| ExtractorError::extract(format!("captcha parse failed: {e}")))?;
+
+        let pow_token = captcha_json["pow_token"].as_str()
+            .ok_or_else(|| ExtractorError::extract("no pow_token"))?;
+        let pow_nonce = captcha_json["pow_nonce"].as_str()
+            .ok_or_else(|| ExtractorError::extract("no pow_nonce"))?;
+        let pow_difficulty = captcha_json["pow_difficulty"].as_u64().unwrap_or(16) as u32;
+
+        // 4. RESOLVER POW
+        let solution = solve_pow(pow_nonce, pow_difficulty);
+
+        // 5. VERIFY
+        let verify_url = format!("{}/api/videos/{}/embed/captcha/verify", base_url, video_id);
+        let verify_body = json!({
+            "pow_token": pow_token,
+            "solution": solution,
+            "fingerprint": {
+                "token": token,
+                "viewer_id": "AtuauIaIq2YSMIBc-Ull4A",
+                "device_id": "fqWjmX5ayBvC_eCFbYqiqw",
+                "confidence": 0.93
+            }
+        });
+
+        let verify_text = self.0.post_json(&verify_url, &verify_body, Some(req_headers.clone())).await?;
+        let verify_json: Value = serde_json::from_str(&verify_text)
+            .map_err(|e| ExtractorError::extract(format!("verify parse failed: {e}")))?;
+
+        let captcha_token = verify_json["token"].as_str()
+            .ok_or_else(|| ExtractorError::extract("no captcha_token"))?;
+
+        // 6. PLAYBACK
+        let playback_url = format!("{}/api/videos/{}/embed/playback", base_url, video_id);
+        let playback_body = json!({
+            "fingerprint": {
+                "token": token,
+                "viewer_id": "AtuauIaIq2YSMIBc-Ull4A",
+                "device_id": "fqWjmX5ayBvC_eCFbYqiqw",
+                "confidence": 0.93
+            }
+        });
+
+        let mut playback_headers = req_headers.clone();
+        playback_headers.insert("x-captcha-token".to_string(), captcha_token.to_string());
+
+        let playback_text = self.0.post_json(&playback_url, &playback_body, Some(playback_headers)).await?;
+        let playback_json: Value = serde_json::from_str(&playback_text)
+            .map_err(|e| ExtractorError::extract(format!("playback parse failed: {e}")))?;
+
+        let playback = playback_json.get("playback")
+            .ok_or_else(|| ExtractorError::extract("no playback field"))?;
+
+        // 7. DESCIFRAR AES-256-GCM
+        let key_parts = playback["key_parts"].as_array()
+            .ok_or_else(|| ExtractorError::extract("no key_parts"))?;
+        let version: usize = playback["version"].as_str().unwrap_or("1").parse()
+            .map_err(|_| ExtractorError::extract("invalid version"))?;
+
+        let key = build_aes_key(key_parts, version)?;
+
+        let iv_b64 = playback["iv"].as_str()
+            .ok_or_else(|| ExtractorError::extract("no iv"))?;
+        let payload_b64 = playback["payload"].as_str()
+            .ok_or_else(|| ExtractorError::extract("no payload"))?;
+
+        let iv = URL_SAFE_NO_PAD.decode(iv_b64.trim_end_matches('='))
+            .map_err(|e| ExtractorError::extract(format!("iv decode failed: {e}")))?;
+        let payload = URL_SAFE_NO_PAD.decode(payload_b64.trim_end_matches('='))
+            .map_err(|e| ExtractorError::extract(format!("payload decode failed: {e}")))?;
+
+        let cipher = Aes256Gcm::new_from_slice(&key)
+            .map_err(|e| ExtractorError::extract(format!("AES init failed: {e}")))?;
+        let nonce_bytes = Nonce::from_slice(&iv);
+        let plaintext = cipher.decrypt(nonce_bytes, payload.as_ref())
+            .map_err(|_| ExtractorError::extract("AES decryption failed"))?;
+
+        let decrypted: Value = serde_json::from_slice(&plaintext)
+            .map_err(|e| ExtractorError::extract(format!("decrypted JSON parse failed: {e}")))?;
+
+        // 8. EXTRAER URL DEL .m3u8
+        let sources = decrypted["sources"].as_array()
+            .ok_or_else(|| ExtractorError::extract("no sources in decrypted playback"))?;
+
+        let hls_source = sources.iter()
+            .find(|s| {
+                s["mime_type"].as_str() == Some("application/vnd.apple.mpegurl")
+                    || s["url"].as_str().map(|u| u.contains(".m3u8")).unwrap_or(false)
+            })
+            .ok_or_else(|| ExtractorError::extract("no HLS source"))?;
+
+        let destination_url = hls_source["url"].as_str()
+            .ok_or_else(|| ExtractorError::extract("HLS source has no url"))?
+            .to_string();
+
+        let mut result_headers = self.0.base_headers.clone();
+        result_headers.insert("referer".to_string(), referer.to_string());
+
+        Ok(ExtractorResult {
+            destination_url,
+            request_headers: result_headers,
+            mediaflow_endpoint: "hls_manifest_proxy",
+        })
+    }
 }

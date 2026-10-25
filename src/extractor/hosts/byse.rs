@@ -186,7 +186,7 @@ impl Extractor for ByseExtractor {
             "signature": sig_b64,
             "public_key": { "crv": "P-256", "ext": true, "key_ops": ["verify"], "kty": "EC", "x": x, "y": y }
         });
-        let attest_text = self.0.post_json_text(&attest_url, &attest_body, Some(req_headers.clone())).await?;
+        let (attest_text, _) = self.0.post_json_text(&attest_url, attest_body, Some(req_headers.clone())).await?;
         let attest_json: Value = serde_json::from_str(&attest_text)
             .map_err(|e| ExtractorError::extract(format!("attest parse: {e}")))?;
         let token = attest_json["token"].as_str().ok_or_else(|| ExtractorError::extract("no token"))?;
@@ -196,7 +196,7 @@ impl Extractor for ByseExtractor {
         let captcha_body = json!({
             "fingerprint": { "token": token, "viewer_id": "AtuauIaIq2YSMIBc-Ull4A", "device_id": "fqWjmX5ayBvC_eCFbYqiqw", "confidence": 0.93 }
         });
-        let captcha_text = self.0.post_json_text(&captcha_url, &captcha_body, Some(req_headers.clone())).await?;
+        let (captcha_text, _) = self.0.post_json_text(&captcha_url, captcha_body, Some(req_headers.clone())).await?;
         let captcha_json: Value = serde_json::from_str(&captcha_text)
             .map_err(|e| ExtractorError::extract(format!("captcha parse: {e}")))?;
         let pow_token = captcha_json["pow_token"].as_str().ok_or_else(|| ExtractorError::extract("no pow_token"))?;
@@ -212,7 +212,7 @@ impl Extractor for ByseExtractor {
             "pow_token": pow_token, "solution": solution,
             "fingerprint": { "token": token, "viewer_id": "AtuauIaIq2YSMIBc-Ull4A", "device_id": "fqWjmX5ayBvC_eCFbYqiqw", "confidence": 0.93 }
         });
-        let verify_text = self.0.post_json_text(&verify_url, &verify_body, Some(req_headers.clone())).await?;
+        let (verify_text, _) = self.0.post_json_text(&verify_url, verify_body, Some(req_headers.clone())).await?;
         let verify_json: Value = serde_json::from_str(&verify_text)
             .map_err(|e| ExtractorError::extract(format!("verify parse: {e}")))?;
         let captcha_token = verify_json["token"].as_str().ok_or_else(|| ExtractorError::extract("no captcha_token"))?;
@@ -224,7 +224,7 @@ impl Extractor for ByseExtractor {
         });
         let mut playback_headers = req_headers.clone();
         playback_headers.insert("x-captcha-token".into(), captcha_token.into());
-        let playback_text = self.0.post_json_text(&playback_url, &playback_body, Some(playback_headers)).await?;
+        let (playback_text, _) = self.0.post_json_text(&playback_url, playback_body, Some(playback_headers)).await?;
         let playback_json: Value = serde_json::from_str(&playback_text)
             .map_err(|e| ExtractorError::extract(format!("playback parse: {e}")))?;
         let playback = playback_json.get("playback").ok_or_else(|| ExtractorError::extract("no playback"))?;

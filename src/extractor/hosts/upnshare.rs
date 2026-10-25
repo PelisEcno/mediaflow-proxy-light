@@ -165,11 +165,11 @@ impl Extractor for UpnshareExtractor {
             base_url.trim_end_matches('/'),
             video_id
         );
-        let (info_bytes, _) = self
+        let (info_hex, _) = self
             .0
-            .get_bytes(&info_url, Some(req_headers.clone()))
+            .get_text(&info_url, Some(req_headers.clone()))
             .await?;
-        let info_text = decrypt_body(&info_bytes)?;
+        let info_text = decrypt_body(info_hex.as_bytes())?;
         let info_json: Value = serde_json::from_str(&info_text)
             .map_err(|e| ExtractorError::extract(format!("info parse: {e}")))?;
 
@@ -189,11 +189,11 @@ impl Extractor for UpnshareExtractor {
             video_id,
             host
         );
-        let (video_bytes, _) = self
+        let (video_hex, _) = self
             .0
-            .get_bytes(&video_url, Some(req_headers.clone()))
+            .get_text(&video_url, Some(req_headers.clone()))
             .await?;
-        let video_text = decrypt_body(&video_bytes)?;
+        let video_text = decrypt_body(video_hex.as_bytes())?;
         let video_json: Value = serde_json::from_str(&video_text)
             .map_err(|e| ExtractorError::extract(format!("video parse: {e}")))?;
 

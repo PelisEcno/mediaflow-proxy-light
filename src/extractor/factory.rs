@@ -15,6 +15,8 @@ use crate::extractor::{
         uqload::UqloadExtractor, vavoo::VavooExtractor, vidfast::VidFastExtractor,
         vidmoly::VidmolyExtractor, vidoza::VidozaExtractor, vixcloud::VixCloudExtractor,
         voe::VoeExtractor,
+        byse::ByseExtractor,
+
     },
 };
 

@@ -16,6 +16,7 @@ use crate::extractor::{
         vidmoly::VidmolyExtractor, vidoza::VidozaExtractor, vixcloud::VixCloudExtractor,
         voe::VoeExtractor,
         byse::ByseExtractor,
+        mp4upload::MP4UploadExtractor,
 
     },
 };
@@ -82,6 +83,7 @@ pub fn get_extractor(
         "streamhg"     => StreamHGExtractor,
         "vidfast"      => VidFastExtractor,
         "byse"         => ByseExtractor,
+        "mp4upload" => MP4UploadExtractor,,
     );
 
     let factory = registry

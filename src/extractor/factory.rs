@@ -17,6 +17,7 @@ use crate::extractor::{
         voe::VoeExtractor,
         byse::ByseExtractor,
         mp4upload::MP4UploadExtractor,
+        upnshare::UpnshareExtractor,
 
     },
 };
@@ -84,6 +85,7 @@ pub fn get_extractor(
         "vidfast"      => VidFastExtractor,
         "byse"         => ByseExtractor,
         "mp4upload" => MP4UploadExtractor,
+        "upnshare"     => UpnshareExtractor,
     );
 
     let factory = registry

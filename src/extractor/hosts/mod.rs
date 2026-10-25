@@ -24,3 +24,4 @@ pub mod vidoza;
 pub mod vixcloud;
 pub mod voe;
 pub mod byse;
+pub mod mp4upload;

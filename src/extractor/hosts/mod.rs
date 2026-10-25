@@ -25,3 +25,4 @@ pub mod vixcloud;
 pub mod voe;
 pub mod byse;
 pub mod mp4upload;
+pub mod upnshare;

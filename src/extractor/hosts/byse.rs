@@ -154,12 +154,16 @@ impl Extractor for ByseExtractor {
         let referer = url;
         let origin = "https://n1mwq.org";
 
+        // 👇 GENERAMOS UUIDs ALEATORIOS PARA CADA EXTRACCIÓN
+        let viewer_id = uuid::Uuid::new_v4().to_string();
+        let device_id = uuid::Uuid::new_v4().to_string();
+
         let mut req_headers = HashMap::new();
         req_headers.insert("referer".into(), referer.into());
         req_headers.insert("origin".into(), origin.into());
         req_headers.insert("user-agent".into(), "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36".into());
-        // 👇 AÑADIR LAS COOKIES (ESTO FALTABA)
-        req_headers.insert("cookie".into(), "byse_viewer_id=AtuauIaIq2YSMIBc-Ull4A; byse_device_id=fqWjmX5ayBvC_eCFbYqiqw".into());
+        // 👇 COOKIES DINÁMICAS
+        req_headers.insert("cookie".into(), format!("byse_viewer_id={}; byse_device_id={}", viewer_id, device_id));
         req_headers.insert("x-embed-parent".into(), referer.into());
 
         // 1. CHALLENGE
@@ -182,8 +186,8 @@ impl Extractor for ByseExtractor {
 
         let attest_url = format!("{}/api/videos/access/attest", base_url);
         let attest_body = json!({
-            "viewer_id": "AtuauIaIq2YSMIBc-Ull4A",
-            "device_id": "fqWjmX5ayBvC_eCFbYqiqw",
+            "viewer_id": &viewer_id,
+            "device_id": &device_id,
             "challenge_id": challenge_id,
             "nonce": nonce,
             "signature": sig_b64,
@@ -197,7 +201,7 @@ impl Extractor for ByseExtractor {
         // 3. CAPTCHA
         let captcha_url = format!("{}/api/videos/{}/embed/captcha", base_url, video_id);
         let captcha_body = json!({
-            "fingerprint": { "token": token, "viewer_id": "AtuauIaIq2YSMIBc-Ull4A", "device_id": "fqWjmX5ayBvC_eCFbYqiqw", "confidence": 0.93 }
+            "fingerprint": { "token": token, "viewer_id": &viewer_id, "device_id": &device_id, "confidence": 0.93 }
         });
         let (captcha_text, _) = self.0.post_json_text(&captcha_url, captcha_body, Some(req_headers.clone())).await?;
         let captcha_json: Value = serde_json::from_str(&captcha_text)
@@ -213,7 +217,7 @@ impl Extractor for ByseExtractor {
         let verify_url = format!("{}/api/videos/{}/embed/captcha/verify", base_url, video_id);
         let verify_body = json!({
             "pow_token": pow_token, "solution": solution,
-            "fingerprint": { "token": token, "viewer_id": "AtuauIaIq2YSMIBc-Ull4A", "device_id": "fqWjmX5ayBvC_eCFbYqiqw", "confidence": 0.93 }
+            "fingerprint": { "token": token, "viewer_id": &viewer_id, "device_id": &device_id, "confidence": 0.93 }
         });
         let (verify_text, _) = self.0.post_json_text(&verify_url, verify_body, Some(req_headers.clone())).await?;
         let verify_json: Value = serde_json::from_str(&verify_text)
@@ -223,7 +227,7 @@ impl Extractor for ByseExtractor {
         // 6. PLAYBACK
         let playback_url = format!("{}/api/videos/{}/embed/playback", base_url, video_id);
         let playback_body = json!({
-            "fingerprint": { "token": token, "viewer_id": "AtuauIaIq2YSMIBc-Ull4A", "device_id": "fqWjmX5ayBvC_eCFbYqiqw", "confidence": 0.93 }
+            "fingerprint": { "token": token, "viewer_id": &viewer_id, "device_id": &device_id, "confidence": 0.93 }
         });
         let mut playback_headers = req_headers.clone();
         playback_headers.insert("x-captcha-token".into(), captcha_token.into());
@@ -231,7 +235,6 @@ impl Extractor for ByseExtractor {
         let playback_json: Value = serde_json::from_str(&playback_text)
             .map_err(|e| ExtractorError::extract(format!("playback parse: {e}")))?;
 
-        // 👇 DEFINIMOS LA VARIABLE PLAYBACK
         let playback = playback_json.get("playback").ok_or_else(|| ExtractorError::extract("no playback"))?;
 
         // 7. DESCIFRAR

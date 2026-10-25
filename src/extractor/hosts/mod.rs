@@ -23,3 +23,4 @@ pub mod vidmoly;
 pub mod vidoza;
 pub mod vixcloud;
 pub mod voe;
+pub mod byse;

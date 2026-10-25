@@ -158,6 +158,9 @@ impl Extractor for ByseExtractor {
         req_headers.insert("referer".into(), referer.into());
         req_headers.insert("origin".into(), origin.into());
         req_headers.insert("user-agent".into(), "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36".into());
+        // 👇 AÑADIR LAS COOKIES (ESTO FALTABA)
+        req_headers.insert("cookie".into(), "byse_viewer_id=AtuauIaIq2YSMIBc-Ull4A; byse_device_id=fqWjmX5ayBvC_eCFbYqiqw".into());
+        req_headers.insert("x-embed-parent".into(), referer.into());
 
         // 1. CHALLENGE
         let challenge_url = format!("{}/api/videos/access/challenge", base_url);
@@ -217,7 +220,7 @@ impl Extractor for ByseExtractor {
             .map_err(|e| ExtractorError::extract(format!("verify parse: {e}")))?;
         let captcha_token = verify_json["token"].as_str().ok_or_else(|| ExtractorError::extract("no captcha_token"))?;
 
-                // 6. PLAYBACK
+        // 6. PLAYBACK
         let playback_url = format!("{}/api/videos/{}/embed/playback", base_url, video_id);
         let playback_body = json!({
             "fingerprint": { "token": token, "viewer_id": "AtuauIaIq2YSMIBc-Ull4A", "device_id": "fqWjmX5ayBvC_eCFbYqiqw", "confidence": 0.93 }
@@ -227,7 +230,7 @@ impl Extractor for ByseExtractor {
         let (playback_text, _) = self.0.post_json_text(&playback_url, playback_body, Some(playback_headers)).await?;
         let playback_json: Value = serde_json::from_str(&playback_text)
             .map_err(|e| ExtractorError::extract(format!("playback parse: {e}")))?;
-        
+
         // 👇 DEFINIMOS LA VARIABLE PLAYBACK
         let playback = playback_json.get("playback").ok_or_else(|| ExtractorError::extract("no playback"))?;
 

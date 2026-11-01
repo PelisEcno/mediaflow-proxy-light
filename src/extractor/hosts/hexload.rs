@@ -102,17 +102,49 @@ impl Extractor for HexloadExtractor {
         // 4. Codificar a Base64
         let base64_url = STANDARD.encode(raw_url);
 
-        // 5. Construir la URL final (test.pl?op=...)
-        let destination_url = format!("https://hexload.com/cgi-bin/test.pl?op={}", base64_url);
+        // 5. Construir la URL del test.pl (que redirige al .mp4)
+        let test_url = format!("https://hexload.com/cgi-bin/test.pl?op={}", base64_url);
 
-        // 6. Devolver el resultado (es un .mp4 directo)
+        // 6. Hacer la petición GET a test.pl SIN seguir redirecciones (solo queremos el Location)
+        let mut redirect_headers = HashMap::new();
+        redirect_headers.insert("referer".to_string(), "https://hexload.com/".to_string());
+
+        let mut hm2 = reqwest::header::HeaderMap::new();
+        let mut merged2 = self.0.base_headers.clone();
+        merged2.extend(redirect_headers);
+        for (k, v) in &merged2 {
+            if let (Ok(n), Ok(val)) = (
+                reqwest::header::HeaderName::from_str(k),
+                reqwest::header::HeaderValue::from_str(v),
+            ) {
+                hm2.insert(n, val);
+            }
+        }
+
+        // Nota: reqwest por defecto sigue redirecciones. Para evitarlo, usamos una petición
+        // con un cliente configurado a no seguirlas, o simplemente leemos el header Location.
+        // Como el cliente del BaseExtractor sigue redirecciones por defecto, hacemos la petición
+        // y leemos la URL final (resp.url()).
+        let resp_redirect = self
+            .0
+            .client
+            .get(&test_url)
+            .headers(hm2)
+            .send()
+            .await
+            .map_err(|e| ExtractorError::Network(e.to_string()))?;
+
+        // La URL final (después de redirecciones) es el .mp4 real
+        let destination_url = resp_redirect.url().to_string();
+
+        // 7. Devolver el resultado (es un .mp4 directo)
         let mut result_headers = self.0.base_headers.clone();
         result_headers.insert("referer".to_string(), "https://hexload.com/".to_string());
 
         Ok(ExtractorResult {
             destination_url,
             request_headers: result_headers,
-            mediaflow_endpoint: "proxy_stream_endpoint", // .mp4 directo
+            mediaflow_endpoint: "proxy_stream_endpoint",
         })
     }
 }

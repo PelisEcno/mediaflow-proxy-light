@@ -12,7 +12,6 @@ use crate::extractor::packed;
 fn sources_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        // sources: [{file:"https://...m3u8?..."}]  (tolera comillas simples/dobles y saltos)
         Regex::new(r#"(?s)sources\s*:\s*\[\s*\{\s*file\s*:\s*["']([^"']+)["']"#).unwrap()
     })
 }
@@ -92,16 +91,15 @@ impl Extractor for UqloadExtractor {
             .await
             .map_err(|e| ExtractorError::Network(e.to_string()))?;
 
-        // ---- NUEVO: desempacar P.A.C.K.E.R. si aplica ----
-        let js = if html.contains("eval(function(p,a,c,k,e,d)") {
-            packed::unpack(&html).map_err(|e| {
-                ExtractorError::extract(&format!("Uqload: packed unpack failed: {e}"))
-            })?
+        // ---- Desempacar P.A.C.K.E.R. si aplica ----
+        let js = if packed::is_packed(&html) {
+            packed::unpack_packed_js(&html)
+                .ok_or_else(|| ExtractorError::extract("Uqload: packed unpack failed"))?
         } else {
             html
         };
 
-        // 1) Intento: sources: [{file:"..."}]
+        // 1) sources: [{file:"..."}]
         let mut video_url = sources_re()
             .captures(&js)
             .and_then(|c| c.get(1))
@@ -118,7 +116,7 @@ impl Extractor for UqloadExtractor {
         let video_url =
             video_url.ok_or_else(|| ExtractorError::extract("Uqload: video URL not found"))?;
 
-        // Elegir endpoint según el tipo de media
+        // Endpoint según tipo de media (.m3u8 → HLS, .mp4 → stream)
         let endpoint = if video_url.contains(".m3u8") {
             "hls_manifest_proxy"
         } else {

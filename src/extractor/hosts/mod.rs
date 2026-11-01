@@ -6,13 +6,14 @@ pub mod fastream;
 pub mod filelions;
 pub mod filemoon;
 pub mod gupload;
-pub mod hexload;      // <-- Asegúrate de que esté
+pub mod hexload;
 pub mod livetv;
 pub mod lulustream;
 pub mod maxstream;
 pub mod mixdrop;
 pub mod mp4upload;
 pub mod okru;
+pub mod savefiles;      // <-- AÑADIR AQUÍ
 pub mod sportsonline;
 pub mod streamhg;
 pub mod streamtape;

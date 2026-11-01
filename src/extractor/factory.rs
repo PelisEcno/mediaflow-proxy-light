@@ -19,6 +19,7 @@ use crate::extractor::{
         mp4upload::MP4UploadExtractor,
         upnshare::UpnshareExtractor,
         hexload::HexloadExtractor,
+        savefiles::SavefilesExtractor,
 
     },
 };
@@ -88,6 +89,7 @@ pub fn get_extractor(
         "mp4upload" => MP4UploadExtractor,
         "upnshare"     => UpnshareExtractor,
         "hexload" => HexloadExtractor,
+        "savefiles" => SavefilesExtractor,
     );
 
     let factory = registry

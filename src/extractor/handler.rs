@@ -16,7 +16,10 @@ use crate::{
     auth::encryption::ProxyData,
     config::Config,
     error::{AppError, AppResult},
-    extractor::{base::ExtraParams, factory::get_extractor},
+    extractor::{
+        base::{ExtraParams, ExtractorResult},
+        factory::get_extractor,
+    },
     proxy::stream::StreamManager,
     utils::url::public_proxy_base_url,
 };
@@ -89,42 +92,15 @@ pub async fn extractor_video_handler(
         AppError::Extractor(e.to_string())
     })?;
 
+    // Full URL of the proxy endpoint that serves this result (manifest/segments
+    // rewritten through the proxy, with the extractor's headers attached).
+    let proxy_url = build_proxy_url(&req, &config, &result);
+
     if redirect_stream {
-        // Map extractor endpoint to the corresponding proxy path.
-        let proxy_path = match result.mediaflow_endpoint {
-            "hls_manifest_proxy" => "/proxy/hls/manifest.m3u8",
-            "hls_key_proxy" => "/proxy/hls/key_proxy/manifest.m3u8",
-            "mpd_manifest_proxy" => "/proxy/mpd/manifest.m3u8",
-            _ => "/proxy/stream", // proxy_stream_endpoint + fallback
-        };
-
-        // Build query string: d=<url>&api_password=<pw>&h_<name>=<val>...
-        let mut params: Vec<String> = vec![
-            format!("d={}", urlencoding::encode(&result.destination_url)),
-            format!(
-                "api_password={}",
-                urlencoding::encode(&config.auth.api_password)
-            ),
-        ];
-        for (name, value) in &result.request_headers {
-            params.push(format!(
-                "h_{}={}",
-                urlencoding::encode(name),
-                urlencoding::encode(value),
-            ));
-        }
-
-        let redirect_url = format!(
-            "{}{}?{}",
-            public_proxy_base_url(&req, &config.server.path),
-            proxy_path,
-            params.join("&"),
-        );
-
-        tracing::info!("Extractor redirect: {redirect_url}");
+        tracing::info!("Extractor redirect: {proxy_url}");
 
         return Ok(HttpResponse::TemporaryRedirect()
-            .append_header(("Location", redirect_url))
+            .append_header(("Location", proxy_url))
             .finish());
     }
 
@@ -132,5 +108,47 @@ pub async fn extractor_video_handler(
         "destination_url": result.destination_url,
         "request_headers": result.request_headers,
         "mediaflow_endpoint": result.mediaflow_endpoint,
+        "mediaflow_proxy_url": proxy_url,
     })))
+}
+
+/// Build the URL of the proxy endpoint that plays `result`:
+/// `{base}{path}?d=<url>&api_password=<pw>&h_<name>=<val>...`.
+///
+/// For HLS extractors (e.g. Zilla) this is `/proxy/hls/manifest.m3u8`, which
+/// downloads the playlist with the extractor headers, rewrites every segment /
+/// `EXT-X-MAP` URI to `/proxy/hls/segment.{ext}` on this proxy, and serves those
+/// segments with the same headers. Needed by CDNs that answer 403 to segments
+/// requested without `Referer` / `User-Agent`.
+fn build_proxy_url(req: &HttpRequest, config: &Config, result: &ExtractorResult) -> String {
+    // Map extractor endpoint to the corresponding proxy path.
+    let proxy_path = match result.mediaflow_endpoint {
+        "hls_manifest_proxy" => "/proxy/hls/manifest.m3u8",
+        "hls_key_proxy" => "/proxy/hls/key_proxy/manifest.m3u8",
+        "mpd_manifest_proxy" => "/proxy/mpd/manifest.m3u8",
+        _ => "/proxy/stream", // proxy_stream_endpoint + fallback
+    };
+
+    // Build query string: d=<url>&api_password=<pw>&h_<name>=<val>...
+    let mut params: Vec<String> = vec![
+        format!("d={}", urlencoding::encode(&result.destination_url)),
+        format!(
+            "api_password={}",
+            urlencoding::encode(&config.auth.api_password)
+        ),
+    ];
+    for (name, value) in &result.request_headers {
+        params.push(format!(
+            "h_{}={}",
+            urlencoding::encode(name),
+            urlencoding::encode(value),
+        ));
+    }
+
+    format!(
+        "{}{}?{}",
+        public_proxy_base_url(req, &config.server.path),
+        proxy_path,
+        params.join("&"),
+    )
 }

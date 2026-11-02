@@ -29,11 +29,15 @@ pub fn resolve_url(base_url: &str, path: &str) -> String {
 
 /// Detect the segment file extension from a URL path (e.g. "ts", "m4s", "mp4").
 /// Defaults to "ts" for unknown/missing extensions.
+///
+/// `.html` segments are fMP4 disguised as web pages (e.g. Zilla), so they are
+/// labelled `m4s`: the proxied route becomes `/proxy/hls/segment.m4s?d=<original .html>`
+/// and the response is served as `video/mp4`.
 pub fn segment_extension(url: &str) -> &'static str {
     let lower = url.to_lowercase();
     // Strip query string for extension detection
     let path = lower.split('?').next().unwrap_or(&lower);
-    if path.ends_with(".m4s") {
+    if path.ends_with(".m4s") || path.ends_with(".html") {
         "m4s"
     } else if path.ends_with(".mp4") {
         "mp4"
@@ -210,6 +214,15 @@ mod tests {
             "m4s"
         );
         assert_eq!(segment_extension("https://cdn.example.com/init.mp4"), "mp4");
+        // fMP4 disguised as .html (Zilla): proxied route is segment.m4s
+        assert_eq!(
+            segment_extension("https://player.zilla-networks.com/segs/abc/000.html"),
+            "m4s"
+        );
+        assert_eq!(
+            segment_extension("https://player.zilla-networks.com/segs/abc/init.html?x=1"),
+            "m4s"
+        );
     }
 
     #[test]

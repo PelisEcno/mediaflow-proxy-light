@@ -26,10 +26,22 @@ const OPEN_ENDPOINTS: &[&str] = &[
     "/playlist/builder",
 ];
 
+/// Route prefixes that are API endpoints, never web UI assets.
+///
+/// Upstream segments can be disguised with any extension (`.html`, `.js`, `.jpg`, …),
+/// and the proxied segment URL keeps that shape, so a path like
+/// `/proxy/hls/segment.html` must NOT be mistaken for a public static file: that
+/// skipped authentication and left the handler without `ProxyData` ("Missing
+/// expected request extension data").
+const API_PREFIXES: &[&str] = &["/proxy/", "/extractor/", "/_token_"];
+
 /// Static web UI assets (html/js/css/images) are public — they contain no secrets.
 fn is_static_asset(path: &str) -> bool {
     if path == "/" {
         return true;
+    }
+    if API_PREFIXES.iter().any(|p| path.starts_with(p)) {
+        return false;
     }
     matches!(
         std::path::Path::new(path)
@@ -419,4 +431,31 @@ fn build_query_from_proxy_data(proxy_data: &ProxyData, existing_qs: &str) -> Str
         .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
         .collect::<Vec<_>>()
         .join("&")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn web_ui_files_are_static_assets() {
+        for p in ["/", "/index.html", "/speedtest.js", "/logo.png", "/playlist_builder.html"] {
+            assert!(is_static_asset(p), "{p} debería ser estático");
+        }
+    }
+
+    #[test]
+    fn api_routes_with_disguised_extensions_are_not_static_assets() {
+        // Segments disguised as web files must go through authentication.
+        for p in [
+            "/proxy/hls/segment.html",
+            "/proxy/hls/segment.js",
+            "/proxy/hls/segment.jpg",
+            "/proxy/stream.png",
+            "/extractor/video.html",
+            "/_token_abc123/proxy/hls/segment.html",
+        ] {
+            assert!(!is_static_asset(p), "{p} NO debería ser estático");
+        }
+    }
 }

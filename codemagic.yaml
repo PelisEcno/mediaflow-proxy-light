@@ -1,0 +1,124 @@
+workflows:
+  ios-xcframework:
+    name: iOS XCFramework (MediaFlow)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      vars:
+        IPHONEOS_DEPLOYMENT_TARGET: "13.0"
+        CARGO_TERM_COLOR: always
+    scripts:
+      - name: Install Rust and targets
+        script: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source "$HOME/.cargo/env"
+          rustup target add aarch64-apple-ios
+          rustup target add aarch64-apple-ios-sim
+          rustup target add x86_64-apple-ios
+      
+      - name: Install iOS compiler wrappers
+        script: |
+          # Device (arm64)
+          cat > /tmp/cc_aarch64_apple_ios <<'EOF'
+          #!/bin/bash
+          exec xcrun --sdk iphoneos clang -target arm64-apple-ios -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" "$@"
+          EOF
+          chmod +x /tmp/cc_aarch64_apple_ios
+          
+          cat > /tmp/ar_aarch64_apple_ios <<'EOF'
+          #!/bin/bash
+          exec xcrun --sdk iphoneos ar "$@"
+          EOF
+          chmod +x /tmp/ar_aarch64_apple_ios
+
+          # Simulator arm64
+          cat > /tmp/cc_aarch64_apple_ios_sim <<'EOF'
+          #!/bin/bash
+          exec xcrun --sdk iphonesimulator clang -target arm64-apple-ios-simulator -isysroot "$(xcrun --sdk iphonesimulator --show-sdk-path)" "$@"
+          EOF
+          chmod +x /tmp/cc_aarch64_apple_ios_sim
+          
+          cat > /tmp/ar_aarch64_apple_ios_sim <<'EOF'
+          #!/bin/bash
+          exec xcrun --sdk iphonesimulator ar "$@"
+          EOF
+          chmod +x /tmp/ar_aarch64_apple_ios_sim
+
+          # Simulator x86_64
+          cat > /tmp/cc_x86_64_apple_ios <<'EOF'
+          #!/bin/bash
+          exec xcrun --sdk iphonesimulator clang -target x86_64-apple-ios-simulator -isysroot "$(xcrun --sdk iphonesimulator --show-sdk-path)" "$@"
+          EOF
+          chmod +x /tmp/cc_x86_64_apple_ios
+          
+          cat > /tmp/ar_x86_64_apple_ios <<'EOF'
+          #!/bin/bash
+          exec xcrun --sdk iphonesimulator ar "$@"
+          EOF
+          chmod +x /tmp/ar_x86_64_apple_ios
+
+      - name: Build iOS Device (arm64)
+        script: |
+          source "$HOME/.cargo/env"
+          export CC_aarch64_apple_ios=/tmp/cc_aarch64_apple_ios
+          export AR_aarch64_apple_ios=/tmp/ar_aarch64_apple_ios
+          export CARGO_TARGET_AARCH64_APPLE_IOS_LINKER=/tmp/cc_aarch64_apple_ios
+          export CARGO_TARGET_AARCH64_APPLE_IOS_AR=/tmp/ar_aarch64_apple_ios
+          
+          cargo build --release \
+            --target aarch64-apple-ios \
+            --no-default-features \
+            --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
+      
+      - name: Build iOS Simulator (arm64)
+        script: |
+          source "$HOME/.cargo/env"
+          export CC_aarch64_apple_ios_sim=/tmp/cc_aarch64_apple_ios_sim
+          export AR_aarch64_apple_ios_sim=/tmp/ar_aarch64_apple_ios_sim
+          export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER=/tmp/cc_aarch64_apple_ios_sim
+          export CARGO_TARGET_AARCH64_APPLE_IOS_SIM_AR=/tmp/ar_aarch64_apple_ios_sim
+          
+          cargo build --release \
+            --target aarch64-apple-ios-sim \
+            --no-default-features \
+            --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
+      
+      - name: Build iOS Simulator (x86_64)
+        script: |
+          source "$HOME/.cargo/env"
+          export CC_x86_64_apple_ios=/tmp/cc_x86_64_apple_ios
+          export AR_x86_64_apple_ios=/tmp/ar_x86_64_apple_ios
+          export CARGO_TARGET_X86_64_APPLE_IOS_LINKER=/tmp/cc_x86_64_apple_ios
+          export CARGO_TARGET_X86_64_APPLE_IOS_AR=/tmp/ar_x86_64_apple_ios
+          
+          cargo build --release \
+            --target x86_64-apple-ios \
+            --no-default-features \
+            --features "ffi,hls,mpd,drm,xtream,extractors,web-ui,base64-url,acestream,tls-rustls"
+
+      - name: Create Universal Simulator Library
+        script: |
+          mkdir -p target/universal-simulator/release
+          lipo -create \
+            target/aarch64-apple-ios-sim/release/libmediaflow_proxy_light.a \
+            target/x86_64-apple-ios/release/libmediaflow_proxy_light.a \
+            -output target/universal-simulator/release/libmediaflow_proxy_light.a
+          
+          lipo -info target/universal-simulator/release/libmediaflow_proxy_light.a
+
+      - name: Create XCFramework
+        script: |
+          xcodebuild -create-xcframework \
+            -library target/aarch64-apple-ios/release/libmediaflow_proxy_light.a \
+            -library target/universal-simulator/release/libmediaflow_proxy_light.a \
+            -output MediaFlowProxyLight.xcframework
+          
+          ls -la MediaFlowProxyLight.xcframework/
+
+      - name: Zip XCFramework
+        script: |
+          zip -r MediaFlowProxyLight.xcframework.zip MediaFlowProxyLight.xcframework
+          
+    artifacts:
+      - MediaFlowProxyLight.xcframework.zip
+      - MediaFlowProxyLight.xcframework

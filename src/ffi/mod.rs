@@ -211,6 +211,22 @@ pub unsafe extern "C" fn mediaflow_server_start(srv: *mut MediaflowServer) -> Me
             let server_config = Arc::new(cfg.clone());
             let host_bind = host.clone();
 
+            // The HLS handlers read these from app data (same as main.rs).
+            let app_metrics = crate::metrics::AppMetrics::new();
+            #[cfg(feature = "hls")]
+            let hls_prebuffer = web::Data::new(crate::hls::prebuffer::HlsPrebuffer::new(
+                crate::hls::prebuffer::PrebufferConfig {
+                    segments_ahead: cfg.hls.prebuffer_segments,
+                    max_prefetchers: cfg.hls.prebuffer_cache_size,
+                    inactivity_timeout: std::time::Duration::from_secs(
+                        cfg.hls.inactivity_timeout.max(1),
+                    ),
+                    segment_cache_ttl: std::time::Duration::from_secs(
+                        cfg.hls.segment_cache_ttl.max(1),
+                    ),
+                },
+            ));
+
             let server = HttpServer::new(move || {
                 let config = Arc::clone(&server_config);
                 let cors = Cors::permissive();
@@ -222,13 +238,61 @@ pub unsafe extern "C" fn mediaflow_server_start(srv: *mut MediaflowServer) -> Me
                     .wrap(auth_middleware.clone())
                     .app_data(web::Data::new(stream_manager.clone()))
                     .app_data(web::Data::new(config.clone()))
-                    .service(
-                        web::scope("/proxy")
-                            .route("/stream", web::get().to(handler::proxy_stream_get))
-                            .route("/stream", web::head().to(handler::proxy_stream_head))
-                            .route("/generate_url", web::post().to(handler::generate_url))
-                            .route("/ip", web::get().to(handler::get_public_ip)),
-                    );
+                    .app_data(web::Data::new(app_metrics.clone()));
+
+                // HLS manifest + segment proxy (used by extractors such as Zilla through
+                // `mediaflow_proxy_url`). Without these routes the iOS build answered 404 to
+                // `/proxy/hls/manifest.m3u8` even though the `hls` feature was compiled in.
+                // Must be registered BEFORE the generic `/proxy` scope below.
+                #[cfg(feature = "hls")]
+                {
+                    use crate::hls::{handler as hls_handler, segment::hls_segment_handler};
+                    app = app
+                        .app_data(hls_prebuffer.clone())
+                        .service(
+                            web::scope("/proxy/hls")
+                                .route("/manifest", web::get().to(hls_handler::hls_manifest_handler))
+                                .route("/manifest", web::head().to(hls_handler::hls_manifest_handler))
+                                .route(
+                                    "/manifest.m3u8",
+                                    web::get().to(hls_handler::hls_manifest_handler),
+                                )
+                                .route(
+                                    "/manifest.m3u8",
+                                    web::head().to(hls_handler::hls_manifest_handler),
+                                )
+                                .route("/playlist", web::get().to(hls_handler::hls_playlist_handler))
+                                .route("/playlist", web::head().to(hls_handler::hls_playlist_handler))
+                                .route(
+                                    "/playlist.m3u8",
+                                    web::get().to(hls_handler::hls_playlist_handler),
+                                )
+                                .route(
+                                    "/playlist.m3u8",
+                                    web::head().to(hls_handler::hls_playlist_handler),
+                                )
+                                .route(
+                                    "/key_proxy/manifest.m3u8",
+                                    web::get().to(hls_handler::hls_manifest_handler),
+                                )
+                                .route(
+                                    "/key_proxy/manifest.m3u8",
+                                    web::head().to(hls_handler::hls_manifest_handler),
+                                )
+                                .route("/segment", web::get().to(hls_segment_handler))
+                                .route("/segment", web::head().to(hls_segment_handler))
+                                .route("/segment.{ext}", web::get().to(hls_segment_handler))
+                                .route("/segment.{ext}", web::head().to(hls_segment_handler)),
+                        );
+                }
+
+                app = app.service(
+                    web::scope("/proxy")
+                        .route("/stream", web::get().to(handler::proxy_stream_get))
+                        .route("/stream", web::head().to(handler::proxy_stream_head))
+                        .route("/generate_url", web::post().to(handler::generate_url))
+                        .route("/ip", web::get().to(handler::get_public_ip)),
+                );
 
                 // 🆕 Content Extractor routes (VOE, Doodstream, etc.)
                 #[cfg(feature = "extractors")]

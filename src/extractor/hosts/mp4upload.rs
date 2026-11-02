@@ -41,7 +41,7 @@ impl Extractor for MP4UploadExtractor {
         Ok(ExtractorResult {
             destination_url,
             request_headers: result_headers,
-            mediaflow_endpoint: "hls_manifest_proxy", // o el que uses para MP4
+            mediaflow_endpoint: "proxy_stream_endpoint", // o el que uses para MP4
         })
     }
 }

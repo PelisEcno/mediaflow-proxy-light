@@ -20,6 +20,7 @@ use crate::extractor::{
         upnshare::UpnshareExtractor,
         hexload::HexloadExtractor,
         savefiles::SavefilesExtractor,
+        yourupload::YourUploadExtractor,
         zilla::ZillaExtractor, 
 
     },
@@ -92,6 +93,7 @@ pub fn get_extractor(
         "hexload" => HexloadExtractor,
         "savefiles" => SavefilesExtractor,
         "zilla" => ZillaExtractor,
+        "yourupload" => YourUploadExtractor,
     );
 
     let factory = registry
